@@ -27,7 +27,7 @@ static int* flot;
 void lecture_mnt(char* nom);
 
 //cst
-static int cst = 1;
+static int cst = 10000;
 
 // La fonction pour calculer les directions est déjà implémentée
 // Elle prend en paramètre un terrain (paramètre data) et elle renvoie les directions dans le tableau dir.
@@ -60,7 +60,7 @@ int mnt_do_tile_default (int x, int y, int width, int height)
 {
   for (int i = y; i < y + height; i++)
     for (int j = x; j < x + width; j++)
-      cur_img (i, j) = conversion(direction[i*DIM+j]);
+      cur_img (i, j) = conversion_acc(flot[i*DIM+j]);
   return 0;
 }
 
@@ -87,15 +87,15 @@ unsigned mnt_compute_seq (unsigned nb_iter)
     for (int i = 0; i < nb_lignes*nb_cols; ++i){
 	    flot[i] = -1;
     }
-    bool flag = false;
+    bool flag = true;
 
-    for (int i = 0; i < nb_lignes; ++i){
+    /*for (int i = 0; i < nb_lignes; ++i){
 	    printf("ligne %d - ",i);
 	    for (int j = 0; j < nb_cols; ++j){
 		    printf("%d ",direction[i*nb_cols+j]);
 	    }
 	    printf("\n");
-    }
+    }*/
 
 
     while (flag){
@@ -107,9 +107,9 @@ unsigned mnt_compute_seq (unsigned nb_iter)
 */	    //printf("\n");
 	    for (int i = 0; i < nb_lignes; ++i){
 		    for (int j = 0 ; j < nb_cols; ++j){
-			   int fno,fn,fne,fo,fe,fso = -1,fs = -1,fse = -1;
-			   int dno,dn,dne,ddo,de,dso = -1,ds = -1,dse = -1;
-			   bool bn,bo,be,bs = false;
+			   int fno = -1; int fn = -1; int fne = -1; int fo = -1; int fe = -1; int fso = -1; int fs = -1; int fse = -1;
+			   int dno = -1; int dn = -1; int dne = -1; int ddo = -1; int de = -1; int dso = -1; int ds = -1; int dse = -1;
+			   bool bn = false; bool bo = false; bool be = false; bool bs = false;
 			   if (i > 0) bn = true;
 			   if (i < nb_lignes-1) bs = true;
 			   if (j > 0) bo = true;
@@ -147,7 +147,7 @@ unsigned mnt_compute_seq (unsigned nb_iter)
 
     /*for (int i = 0; i < nb_lignes; ++i){
 	    for (int j = 0; j < nb_cols; ++j){
-		    printf("%d ",flot[i*nb_cols+j]);
+		    printf("%4.1d ",flot[i*nb_cols+j]);
 	    }
 	    printf("\n");
     }*/
@@ -175,7 +175,7 @@ int mnt_do_tile_mpi (int x, int y, int width, int height)
 {
   for (int i = y; i < y + height; i++)
     for (int j = x; j < x + width; j++)
-      cur_img (i, j) = conversion(dir_local[(i-y+1)*width+(j-x)]);
+      cur_img (i, j) = conversion_acc(flot_local[(i-y+1)*width+(j-x)]);
   return 0;
 }
 
@@ -242,13 +242,13 @@ unsigned mnt_compute_mpi(unsigned nb_iter)
     MPI_Isend(dir_local+nb_cols*nb_lignes_local, nb_cols, MPI_FLOAT, (mpi_rank+1)%mpi_size, 0, MPI_COMM_WORLD, &request);
     MPI_Recv(dir_local, nb_cols, MPI_FLOAT, (mpi_size+mpi_rank-1)%mpi_size, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 
-    // Mise en place de valeurs n'affectant pas le futur calcul des flots pour la première ligne
+    // Mise en place de valeurs de directions n'affectant pas le futur calcul des flots pour la première ligne
     if (mpi_rank == 0){
       for (int i = 0; i < nb_cols; ++i){
         dir_local[i] = -1;
       }
     }
-    // Mise en place de valeurs n'affectant pas le futur calcul des flots pour la dernière ligne
+    // Mise en place de valeurs de directions n'affectant pas le futur calcul des flots pour la dernière ligne
     if (mpi_rank == mpi_size-1){
       for (int i = 0; i < nb_cols; ++i){
         dir_local[(nb_lignes_local+1)*nb_cols + i] = -1;
@@ -268,15 +268,116 @@ unsigned mnt_compute_mpi(unsigned nb_iter)
     if (mpi_rank == 0)
       direction = (int *) calloc(nb_lignes*nb_cols,sizeof(int));
     //Rassemblement des directions locales dans le tableau de directions globales sur le processus 0
-    MPI_Gather(dir_local + nb_cols, nb_lignes_local*nb_cols, MPI_INT, direction, nb_lignes_local*nb_cols, MPI_INT, 0, MPI_COMM_WORLD);  
+    //MPI_Gather(dir_local + nb_cols, nb_lignes_local*nb_cols, MPI_INT, direction, nb_lignes_local*nb_cols, MPI_INT, 0, MPI_COMM_WORLD);  
+
+    //Initialisation des flots locaux à -1
+    for (int i = 0; i < (nb_lignes_local+2)*nb_cols; ++i){
+      flot_local[i] = -1;
+    }
+
+    //Tableau des directions inverses 
+    int inv_direction[3][3] = 
+             {{4, 5,6},
+      				{3,-1,7},
+      				{2, 1,8}};
+    
+    //Définition d'entier utilisé comme des booléen dans les conditions du calcul (0 ou 1 uniquement)
+    int calculating = 1; //1 si le processus doit refaire une itération
+    int anc_calculating = 1; //1 si le processus devait refaire une itération à l'itération -1
+    int north_calculating = 1; //1 si le processus au dessus doit refaire une itération
+    int south_calculating = 1; //1 si le processus en dessous doit refaire une itération
+    
+    //Tant que le processus ou un de ses voisins doit calculer son flot
+    while (calculating + north_calculating + south_calculating >= 1){
+      //Si le processus doit calculer son flot
+      if (calculating == 1) {
+        calculating = 0;
+        for (int i = 1; i < nb_lignes_local + 1; ++i) {
+          for (int j = 0; j < nb_cols; ++j) {
+            if (flot_local[i * nb_cols + j] == -1){
+              int res = 1;
+              bool no_skip = true;
+              for (int vy = -1; vy <= 1; ++vy){
+                for (int vx = -1; vx <= 1; ++vx){
+                  if (0 <= i + vy && i + vy < nb_lignes_local + 2 && 0 <= j + vx && j + vx < nb_cols){
+                    if (dir_local[(i+vy) * nb_cols + j + vx] == inv_direction[vy+1][vx+1]){
+                      if (flot_local[(i+vy) * nb_cols + j + vx] != -1) {
+                        res += flot_local[(i+vy) * nb_cols + j + vx];
+                      }
+                      else {
+                        //Une valeur à empêché le calcul d'une valeur
+                        no_skip = false;
+                        //Le processus doit refaire une nouvelle itération
+                        calculating = 1;
+                      }
+                    }
+                  }
+                }	
+              }
+              if (no_skip){
+                flot_local[i*nb_cols + j] = res;
+              }
+            }
+          }
+        }
+        //Envoie des ghosts aux processus n'ayant pas terminés leurs calculs
+        if (north_calculating == 1){
+          MPI_Isend(flot_local+nb_cols, nb_cols, MPI_INT, (mpi_size+mpi_rank-1)%mpi_size, 0, MPI_COMM_WORLD, &request);
+        }
+        if (south_calculating == 1){
+          MPI_Isend(flot_local+nb_cols*nb_lignes_local, nb_cols, MPI_INT, (mpi_rank+1)%mpi_size, 0, MPI_COMM_WORLD, &request);
+        }
+      }
+
+      //Réception des ghosts si le processus et son voisin devaient faire une nouvelle itérations
+      if (anc_calculating == 1 && south_calculating == 1){
+        MPI_Recv(flot_local+(nb_lignes_local+1)*nb_cols, nb_cols, MPI_INT, (mpi_rank+1)%mpi_size, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+      }
+      if (anc_calculating == 1 && north_calculating == 1){
+        MPI_Recv(flot_local, nb_cols, MPI_INT, (mpi_size+mpi_rank-1)%mpi_size, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+      }
+
+      //Envoie des booléens concernant une nouvelle itération si on devait faire une itération
+      if (anc_calculating == 1){
+        MPI_Isend(&calculating, 1, MPI_INT, (mpi_rank+1)%mpi_size, 0, MPI_COMM_WORLD, &request);
+        MPI_Isend(&calculating, 1, MPI_INT, (mpi_size+mpi_rank-1)%mpi_size, 1, MPI_COMM_WORLD, &request);
+      }
+
+      //Réception des booléens des processus voisins qui devaient refaire une itération
+      if (north_calculating == 1)
+        MPI_Recv(&north_calculating, 1, MPI_INT, (mpi_size+mpi_rank-1)%mpi_size, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+
+      if (south_calculating == 1)
+        MPI_Recv(&south_calculating, 1, MPI_INT, (mpi_rank+1)%mpi_size, 1, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+
+      //Mise à jour du booléens possédé par les voisins
+      anc_calculating = calculating;
+    /*if (mpi_rank == mpi_size -1){  
+    printf("Mon pid %d\n",mpi_rank);
+    for (int i = 0; i < nb_lignes_local + 2; ++i){
+      for (int j = 0; j < nb_cols; ++j){
+        printf("%d ", flot_local[i*nb_cols + j]);
+      } 
+      printf("\n");
+    }
+    }*/
+        
+  }
+
+  //Création du tableau de flots globales pour le processus 0
+  if (mpi_rank == 0)
+    flot = (int *) calloc(nb_lignes*nb_cols,sizeof(int));
+  //Rassemblement des flots locales dans le tableau de flots globales sur le processus 0
+  MPI_Gather(flot_local + nb_cols, nb_lignes_local*nb_cols, MPI_INT, flot, nb_lignes_local*nb_cols, MPI_INT, 0, MPI_COMM_WORLD);  
+
 
     // 5. l'appel à do_tile
     if (mpi_rank == 0){
-      //Affichage du tableau de directions globales
+      //Affichage du tableau de flots globales
       /*printf("Mon pid %d\n",mpi_rank);
       for (int i = 0; i < nb_lignes; ++i){
         for (int j = 0; j < nb_cols; ++j){
-          printf("%d ", direction[i*nb_cols + j]);
+          printf("%4.1d ", flot[i*nb_cols + j]);
         } 
         printf("\n");
       }*/
