@@ -27,7 +27,7 @@ static int* flot;
 void lecture_mnt(char* nom);
 
 //cst
-static int cst = 10000;
+static int cst = 10;
 
 // La fonction pour calculer les directions est déjà implémentée
 // Elle prend en paramètre un terrain (paramètre data) et elle renvoie les directions dans le tableau dir.
@@ -265,10 +265,10 @@ unsigned mnt_compute_mpi(unsigned nb_iter)
     }*/
 
     //Création du tableau de directions globales pour le processus 0
-    if (mpi_rank == 0)
+    /*if (mpi_rank == 0)
       direction = (int *) calloc(nb_lignes*nb_cols,sizeof(int));
     //Rassemblement des directions locales dans le tableau de directions globales sur le processus 0
-    //MPI_Gather(dir_local + nb_cols, nb_lignes_local*nb_cols, MPI_INT, direction, nb_lignes_local*nb_cols, MPI_INT, 0, MPI_COMM_WORLD);  
+    //MPI_Gather(dir_local + nb_cols, nb_lignes_local*nb_cols, MPI_INT, direction, nb_lignes_local*nb_cols, MPI_INT, 0, MPI_COMM_WORLD);*/
 
     //Initialisation des flots locaux à -1
     for (int i = 0; i < (nb_lignes_local+2)*nb_cols; ++i){
