@@ -314,20 +314,37 @@ unsigned mnt_compute_mpi(unsigned nb_iter) {
             MPI_Allreduce(&stop_local, &stop, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD);
             if (stop != mpi_size)
                 echange_ghosts_int(bassin_local,nb_lignes_local,nb_cols);
+          //break;
         }
-        bassin = (int *) malloc(nb_lignes*nb_cols*sizeof(int));
-        MPI_Gather(bassin_local + nb_cols, nb_lignes_local*nb_cols, MPI_INT, bassin, nb_lignes_local*nb_cols, MPI_INT, 0, MPI_COMM_WORLD);
+        if (mpi_rank == 0){
 
-        /*if (mpi_rank == 0){
-          printf("\n");
-            printf("pid = %d\n",mpi_rank);
-            for (int i = 0; i < (nb_lignes); ++i){
-              for (int j = 0; j < nb_cols; ++j){
-                printf("%4.1d",bassin[i * nb_cols + j]);
-              }
-              printf("\n");
+          printf("pid = %d\n",mpi_rank);
+          for (int i = 0; i < (nb_lignes_local+2); ++i){
+            for (int j = 0; j < nb_cols; ++j){
+              printf("%4.1d",bassin_local[i * nb_cols + j]);
+            }
+            printf("\n");
           }
-        }*/
+        }
+        MPI_Barrier(MPI_COMM_WORLD);
+        if (mpi_rank == 1){
+
+          printf("pid = %d\n",mpi_rank);
+          for (int i = 0; i < (nb_lignes_local+2); ++i){
+            for (int j = 0; j < nb_cols; ++j){
+              printf("%4.1d",bassin_local[i * nb_cols + j]);
+            }
+            printf("\n");
+          }
+        }
+        /*printf("\n");
+          printf("pid = %d\n",mpi_rank);
+          for (int i = 0; i < (nb_lignes_local+2); ++i){
+            for (int j = 0; j < nb_cols; ++j){
+              printf("%4.1d",dir_local[i * nb_cols + j]);
+            }
+            printf("\n");
+          }*/
 
           // Première version pour la génération de l'image
         // avec l'option -wt mpi ou -wt mpi_acc pour respectivement la direction et les flots d'accumulation
@@ -606,17 +623,7 @@ void calcul_bassin(int *bassin, int *dir, int n_l, int n_c) {
 }
 
 int f_bassin(int *bassin, int *dir, int n_l, int n_c, int i, int j) {
-  //Condition pour ne pas regarder des valeurs en dehors du tableau (ghosts compris)
   if (i >= -1 && i <= n_l) {
-    //S'il y a un puis sur un ghost on récupère la valeur
-    if (i == -1 && dir[i*n_c + j] == 0){
-      return bassin[i*n_c+j];
-    }
-    if (i == n_l && dir[i*n_c+j] == 0){
-      return bassin[i*n_c+j];
-    }
-
-
     if (dir[i * n_c + j] == 0) {
       if (bassin[i * n_c + j] == -1) {
         num++;
